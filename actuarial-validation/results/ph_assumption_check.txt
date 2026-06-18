@@ -1,0 +1,66 @@
+==============================================================================
+PROPORTIONAL HAZARDS CHECK — BASE MODEL (age + sex)
+==============================================================================
+Proportional hazard assumption looks okay.
+
+==============================================================================
+PROPORTIONAL HAZARDS CHECK — BEST CLOCK MODEL (age + sex + z_GrimAge2Mort)
+==============================================================================
+The ``p_value_threshold`` is set at 0.05. Even under the null hypothesis of no violations, some
+covariates will be below the threshold by chance. This is compounded when there are many covariates.
+Similarly, when there are lots of observations, even minor deviances from the proportional hazard
+assumption will be flagged.
+
+With that in mind, it's best to use a combination of statistical tests and visual tests to determine
+the most serious violations. Produce visual plots using ``check_assumptions(..., show_plots=True)``
+and looking for non-constant lines. See link [A] below for a full example.
+
+<lifelines.StatisticalResult: proportional_hazard_test>
+ null_distribution = chi squared
+degrees_of_freedom = 1
+             model = <lifelines.CoxPHFitter: fitted with 1772 total observations, 820 right-censored observations>
+         test_name = proportional_hazard_test
+
+---
+                     test_statistic      p  -log2(p)
+sex_female     km              0.17   0.68      0.55
+               rank            0.20   0.66      0.61
+z_GrimAge2Mort km             12.59 <0.005     11.33
+               rank           12.57 <0.005     11.32
+z_RIDAGEYR     km              6.97   0.01      6.91
+               rank            7.04   0.01      6.97
+
+
+1. Variable 'z_RIDAGEYR' failed the non-proportional test: p-value is 0.0080.
+
+   Advice 1: the functional form of the variable 'z_RIDAGEYR' might be incorrect. That is, there may
+be non-linear terms missing. The proportional hazard test used is very sensitive to incorrect
+functional forms. See documentation in link [D] below on how to specify a functional form.
+
+   Advice 2: try binning the variable 'z_RIDAGEYR' using pd.cut, and then specify it in
+`strata=['z_RIDAGEYR', ...]` in the call in `.fit`. See documentation in link [B] below.
+
+   Advice 3: try adding an interaction term with your time variable. See documentation in link [C]
+below.
+
+
+2. Variable 'z_GrimAge2Mort' failed the non-proportional test: p-value is 0.0004.
+
+   Advice 1: the functional form of the variable 'z_GrimAge2Mort' might be incorrect. That is, there
+may be non-linear terms missing. The proportional hazard test used is very sensitive to incorrect
+functional forms. See documentation in link [D] below on how to specify a functional form.
+
+   Advice 2: try binning the variable 'z_GrimAge2Mort' using pd.cut, and then specify it in
+`strata=['z_GrimAge2Mort', ...]` in the call in `.fit`. See documentation in link [B] below.
+
+   Advice 3: try adding an interaction term with your time variable. See documentation in link [C]
+below.
+
+
+---
+[A]  https://lifelines.readthedocs.io/en/latest/jupyter_notebooks/Proportional%20hazard%20assumption.html
+[B]  https://lifelines.readthedocs.io/en/latest/jupyter_notebooks/Proportional%20hazard%20assumption.html#Bin-variable-and-stratify-on-it
+[C]  https://lifelines.readthedocs.io/en/latest/jupyter_notebooks/Proportional%20hazard%20assumption.html#Introduce-time-varying-covariates
+[D]  https://lifelines.readthedocs.io/en/latest/jupyter_notebooks/Proportional%20hazard%20assumption.html#Modify-the-functional-form
+[E]  https://lifelines.readthedocs.io/en/latest/jupyter_notebooks/Proportional%20hazard%20assumption.html#Stratification
+

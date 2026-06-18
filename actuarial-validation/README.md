@@ -1,211 +1,142 @@
-# NHANES Epigenetic Aging Clock Validation
+# NHANES Epigenetic Clock Mortality Validation
 
-Survival analysis validation of epigenetic aging clocks (GrimAge, GrimAge2, Horvath, Hannum, PhenoAge, DunedinPoAm) against mortality outcomes in NHANES.
+A small, reproducible pipeline that asks one question with public data:
 
-## Project Status
+> **Do DNA-methylation "aging clocks" predict death better than chronological age and sex alone?**
 
-**Phase: Analytic Cohort Construction Complete ✓**
+It links eight epigenetic clocks measured on NHANES 1999–2002 participants
+(aged 50+) to ~17–20 years of mortality follow-up from the NCHS public-use
+Linked Mortality Files, fits Cox proportional-hazards models, and measures how
+much each clock improves out-of-sample discrimination (test C-index) over a
+plain age + sex baseline.
 
-- [x] Data acquisition (DNAm, demographics, mortality linkage)
-- [x] Data merging and integration
-- [x] Cohort construction with explicit filtering
-- [x] Survival variables construction
-- [x] Predictor standardization (z-scoring)
-- [x] Cohort descriptive statistics
-- [x] Train/test split (stratified, 70/30)
-- [ ] Cox proportional hazards modeling
-- [ ] Model validation and performance metrics
+**Cohort:** n = 2,532 eligible participants aged 50+ with both DNAm biomarkers
+and mortality linkage. 1,361 deaths (53.8%), median follow-up 17.1 years.
 
-## Project Structure
+## Headline result
+
+| | C-index (test) | Δ vs. age+sex | HR per SD (95% CI) | p |
+|---|---|---|---|---|
+| Age + sex (baseline) | 0.746 | — | — | — |
+| + **GrimAge2Mort** | **0.769** | **+0.0235** | 2.06 (1.84–2.30) | 2.5e-36 |
+| + GrimAgeMort | 0.766 | +0.0202 | 2.09 (1.86–2.37) | 7.0e-33 |
+| + DunedinPoAm | 0.757 | +0.0116 | 1.36 (1.27–1.45) | 1.2e-20 |
+| + 5 age-trained clocks | 0.747–0.750 | +0.0016 … +0.0044 | — | — |
+
+Mortality-trained clocks (GrimAge2, GrimAge) carry real, highly significant
+signal beyond age and sex, but the absolute discrimination gain is modest
+(≤0.024 C-index). Full numbers in [`results/cindex_comparison.csv`](results/cindex_comparison.csv)
+and [`RESULTS.md`](RESULTS.md).
+
+![Incremental C-index by clock](figures/incremental_cindex.png)
+![Survival by GrimAgeMort tertile](figures/km_by_grimage_tertile.png)
+
+## Pipeline (four steps)
 
 ```
-actuarial-validation/
-├── data/
-│   ├── raw/           # NHANES downloaded files
-│   │   ├── dnmepi.sas7bdat (1.19 MB, 4,449 rows)
-│   │   ├── DEMO_1999.xpt (10.97 MB, 9,965 rows)
-│   │   ├── DEMO_2001.xpt (3.12 MB, 11,039 rows)
-│   │   ├── NHANES_1999_2000_MORT_2019_PUBLIC.dat (476 KB)
-│   │   └── NHANES_2001_2002_MORT_2019_PUBLIC.dat (528 KB)
-│   └── processed/     # Merged analytic datasets
-│       ├── analytic_cohort.csv (2,532 rows × 29 columns)
-│       └── train_test_split.json
-├── src/
-│   ├── __init__.py
-│   ├── download.py    # Data acquisition & documentation
-│   ├── verify_variables.py (verification script)
-│   └── build_cohort.py (cohort construction)
-├── notebooks/         # Analysis notebooks (coming)
-├── figures/           # Output plots (coming)
-├── requirements.txt   # Python dependencies
-└── README.md          # This file
+download  →  verify  →  build_cohort  →  analysis
 ```
 
-## Data Sources (Verified URLs & Specifications)
+1. **download** (`src/download.py`) — documents the exact data sources and
+   validates that the required raw files are present in `data/raw/`.
+2. **verify** (`src/verify_variables.py`) — loads the DNAm files and confirms
+   the clock column names/labels and that `SEQN`/`WTDN4YR` exist.
+3. **build_cohort** (`src/build_cohort.py`) — merges DNAm + demographics +
+   mortality on `SEQN`, applies explicit eligibility filters, constructs
+   survival variables (`time_years`, `event`), z-scores predictors, and writes
+   a stratified 70/30 train/test split (`random_state=42`).
+4. **analysis** (`src/analysis.py`) — fits Cox models on the train split,
+   evaluates Harrell's C-index on the held-out test split, checks the
+   proportional-hazards assumption, and writes the results table and figures.
 
-### NHANES DNA Methylation (DNAm) Epigenetic Biomarkers
-- **File:** `dnmepi.sas7bdat` (combined 1999-2002 cycles)
-- **URL:** https://wwwn.cdc.gov/nchs/data/nhanes/dnam/dnmepi.sas7bdat
-- **Size:** 1.19 MB
-- **Rows:** 4,449 (ages 50+)
-- **Array:** Illumina MethylationEPIC v1.0 (~850K CpG sites)
-- **Format:** SAS7BDAT binary
+## Run it (one command)
 
-### NHANES Demographics
-- **1999-2000:** `DEMO.xpt` (9,965 rows)
-  - URL: https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/1999/DataFiles/DEMO.xpt
-- **2001-2002:** `DEMO_B.xpt` (11,039 rows)
-  - URL: https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2001/DataFiles/DEMO_B.xpt
-- **Format:** SAS Transport (.xpt)
-- **Key variables:** SEQN, RIDAGEYR, RIAGENDR, SDMVPSU, SDMVSTRA
-
-### Linked Mortality (National Death Index, NDI)
-- **1999-2000:** https://ftp.cdc.gov/pub/Health_Statistics/NCHS/datalinkage/linked_mortality/NHANES_1999_2000_MORT_2019_PUBLIC.dat
-- **2001-2002:** https://ftp.cdc.gov/pub/Health_Statistics/NCHS/datalinkage/linked_mortality/NHANES_2001_2002_MORT_2019_PUBLIC.dat
-- **Format:** Fixed-width ASCII
-- **Linkage:** Through 2019
-- **Key variables:** SEQN, ELIGSTAT, MORTSTAT, PERMTH_INT, PERMTH_EXM (person-months)
-
-## Epigenetic Clock Variables (Empirically Verified)
-
-All variable names verified by loading actual SAS7BDAT file and inspecting column names + labels.
-
-| Clock | **Column Name** | Description | r with Age |
-|-------|---------|-------------|-----------|
-| **Horvath** | `HorvathAge` | Original epigenetic age (51 tissues) | 0.793 |
-| **Hannum** | `HannumAge` | Epigenetic age (whole blood) | 0.808 |
-| **Skin/Blood** | `SkinBloodAge` | Horvath age (skin & blood tissues) | 0.850 |
-| **PhenoAge** | `PhenoAge` | Phenotypic age (Levine) | 0.762 |
-| **GrimAge** | `GrimAgeMort` | Mortality predictor (Horvath 2018) | 0.840 |
-| **GrimAge2** | `GrimAge2Mort` | Updated mortality predictor (2024) | 0.804 |
-| **DunedinPoAm** | `DunedinPoAm` | Pace-of-aging (biological tempo) | **0.036** ✓ |
-| **DNAmTL** | `HorvathTelo` | Telomere length (Horvath) | **-0.582** ✓ |
-
-**Key Identifiers & Weights:**
-- Participant ID: `SEQN`
-- Survey weight (DNAm subsample): `WTDN4YR` (4-year combined weight, not WTINT2YR)
-
-## Analytic Cohort Summary
-
-**Final sample: n=2,532** (eligible NHANES participants aged 50+ with DNAm and mortality linkage)
-
-### Filtering steps:
-- DNAm subsample: 4,449 → 2,532 (57% have GrimAgeMort phenotype data)
-- Merged with demographics: 4,449 → 4,449 (100% match)
-- Eligible (ELIGSTAT=1): 4,446 → 4,446 (dropped 3 ineligible)
-- GrimAgeMort non-null: 4,446 → 2,532 (dropped 1,914 without biomarker)
-- Positive follow-up: 2,532 → 2,532 (no drops)
-
-### Demographics
-- **Chronological age:** 66.1 ± 10.1 years (range 50–85, top-coded at 85)
-- **Female:** 49.2%
-- **Follow-up time:** Median 17.1 years, max 20.8 years
-
-### Mortality Outcomes
-- **Events (deaths):** 1,361 (53.8%)
-- **Censored (alive):** 1,171 (46.2%)
-
-### Mortality Validation ✓
-Deceased participants older on both measures:
-- **Chronological age:** Dead 71.1 vs. Alive 60.3 years
-- **GrimAgeMort:** Dead 71.1 vs. Alive 61.0
-
-### Clock Characteristics
-- **Age-trained clocks:** r(RIDAGEYR) = 0.76–0.85 (Horvath, Hannum, etc.)
-- **Pace-of-aging (DunedinPoAm):** r(RIDAGEYR) = 0.036 ✓ (appropriately uncorrelated)
-- **Telomere length (HorvathTelo):** r(RIDAGEYR) = −0.58 ✓ (inverse, as expected)
-
-### Standardized Predictors
-- Z-scored versions (mean 0, SD 1) created for all clocks + chronological age
-- Variable names: `z_HorvathAge`, `z_GrimAgeMort`, etc.
-
-### Train/Test Split (Stratified on Event)
-- **Train:** 1,772 rows, 952 events (53.7%)
-- **Test:** 760 rows, 409 events (53.8%)
-- Random state: 42
-
-## Setup & Usage
-
-### Installation
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+
+# place raw NHANES files in data/raw/ first (see Data sources below), then:
+python run_all.py        # or:  make all
 ```
 
-### Download Data
-```bash
-python src/download.py  # Downloads + validates NHANES data
+Outputs:
+- `results/cindex_comparison.csv` — per-clock C-index, Δ, HR, 95% CI, p
+- `results/ph_assumption_check.txt` — PH diagnostics for base + best model
+- `figures/incremental_cindex.png`, `figures/km_by_grimage_tertile.png`
+
+Raw NHANES files are **not** committed (NCHS does not permit redistribution,
+and the mortality files require agreeing to a data-use agreement). The derived
+`analytic_cohort.csv` is also not committed — it is regenerated from the raw
+files. The small, deterministic `data/processed/train_test_split.json` is kept
+for exact reproducibility, but `run_all.py` regenerates an identical split from
+seed 42 if it is absent.
+
+## Data sources (exact URLs used)
+
+**NHANES DNA Methylation Epigenetic Biomarkers** (combined 1999–2002 cycles)
+→ `data/raw/dnmepi.sas7bdat`
+`https://wwwn.cdc.gov/nchs/data/nhanes/dnam/dnmepi.sas7bdat`
+(landing page: `https://wwwn.cdc.gov/nchs/nhanes/dnam/`)
+
+**NHANES Demographics**
+- 1999–2000 → `data/raw/DEMO_1999.xpt` —
+  `https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/1999/DataFiles/DEMO.xpt`
+- 2001–2002 → `data/raw/DEMO_2001.xpt` —
+  `https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2001/DataFiles/DEMO_B.xpt`
+
+**NCHS Linked Mortality Files (public-use, 2019 linkage)**
+- 1999–2000 → `data/raw/NHANES_1999_2000_MORT_2019_PUBLIC.dat`
+- 2001–2002 → `data/raw/NHANES_2001_2002_MORT_2019_PUBLIC.dat`
+- `https://ftp.cdc.gov/pub/Health_Statistics/NCHS/datalinkage/linked_mortality/`
+  (info: `https://www.cdc.gov/nchs/data-linkage/mortality-public.htm`)
+
+Clocks used (verified column names): `HorvathAge`, `HannumAge`,
+`SkinBloodAge`, `PhenoAge`, `GrimAgeMort`, `GrimAge2Mort`, `DunedinPoAm`,
+`HorvathTelo`. Key variables: `SEQN`, `RIDAGEYR`, `RIAGENDR`, `MORTSTAT`,
+`PERMTH_EXM`, `ELIGSTAT`.
+
+## Limitations
+
+- **Unweighted.** These models ignore the NHANES complex survey design, so the
+  estimates are **not nationally representative** — they describe this analytic
+  sample only. The design variables (`WTDN4YR`, `SDMVPSU`, `SDMVSTRA`) are kept
+  in the cohort so anyone wanting survey-weighted estimates can produce them.
+- **Public-use mortality file.** Follow-up time and cause of death are
+  intentionally perturbed in the public-use Linked Mortality Files to protect
+  confidentiality; the restricted-use files are more precise.
+- **Single cohort, no external validation.** Train/test are two splits of the
+  same NHANES sample. There is no replication in an independent cohort, so the
+  C-index gains should be read as in-sample-cohort, not externally validated.
+- **Proportional hazards.** The age + sex baseline satisfies PH, but in the
+  best clock model both age and the clock show mild PH violations (large n
+  makes the test sensitive). These are reported, not corrected away.
+- **Discrimination only.** This validates ranking (C-index) and hazard ratios,
+  not calibration or absolute risk.
+
+## Repository layout
+
+```
+.
+├── run_all.py            # one-command pipeline
+├── Makefile              # make all / install / build / analysis / clean
+├── src/
+│   ├── download.py       # document sources + validate raw files
+│   ├── verify_variables.py
+│   ├── build_cohort.py   # merge + filter + split
+│   └── analysis.py       # Cox models, C-index, PH checks, figures
+├── data/
+│   ├── raw/              # NHANES files (not committed; download yourself)
+│   └── processed/        # train_test_split.json (cohort CSV is gitignored)
+├── results/              # cindex_comparison.csv, ph_assumption_check.txt
+├── figures/              # incremental_cindex.png, km_by_grimage_tertile.png
+├── RESULTS.md
+├── CITATION.md
+└── LICENSE
 ```
 
-### Build Analytic Cohort
-```bash
-python src/build_cohort.py  # Merges data, constructs cohort, saves to CSV
-```
+## License & credit
 
-### Output Files
-- **`data/processed/analytic_cohort.csv`** — Full cohort (2,532 rows × 29 columns)
-  - Raw predictors: RIDAGEYR, 8 epigenetic clocks, survey design variables
-  - Z-scored predictors: z_RIDAGEYR, z_HorvathAge, z_GrimAgeMort, etc.
-  - Survival variables: time_years, event (0=censored, 1=dead)
-  - Metadata: SEQN, WTDN4YR, MORTSTAT, PERMTH_EXM, etc.
-
-- **`data/processed/train_test_split.json`** — Train/test indices
-  - Stratified on event status
-  - 70/30 split, random_state=42
-
-## Analysis Pipeline (Next Steps)
-
-1. **Cox Proportional Hazards Models** (on train set)
-   - Univariate: each clock vs. mortality
-   - Adjusted: each clock + chronological age + sex
-   - Full: all clocks + demographics + survey adjustment
-
-2. **Model Validation** (on test set)
-   - Concordance index (C-index)
-   - Calibration (observed vs. predicted)
-   - Comparative performance (clock vs. age alone)
-
-3. **Visualization**
-   - Kaplan-Meier curves (stratified by clock quartiles)
-   - Forest plots (hazard ratios + 95% CI)
-   - ROC curves, performance comparisons
-
-## Survey Design Considerations
-
-- **Stratification:** SDMVSTRA (strata)
-- **Clustering:** SDMVPSU (primary sampling units)
-- **Sample weight:** WTDN4YR (4-year combined DNAm weight)
-- Recommend using `lifelines` or `statsmodels` with survey weights for weighted Cox models
-
-## Known Constraints & Data Characteristics
-
-1. **Survey Design**
-   - Complex survey: stratified, multistage cluster sampling
-   - Use WTDN4YR (not WTINT2YR) for DNAm subsample analyses
-   - Must account for SDMVPSU (clustering) and SDMVSTRA (stratification)
-
-2. **Mortality Linkage**
-   - NDI linkage through 2019 (20-year follow-up)
-   - Public-use file only (restricted-access data not available)
-   - ELIGSTAT coding: 1=eligible, 2=under 18, 3=ineligible
-   - Only ELIGSTAT=1 participants in analytic cohort
-
-3. **Sample Composition**
-   - Older adult cohort (aged 50–85)
-   - High event rate (53.8%, appropriate for ~20-year follow-up)
-   - DNAm subsample: 2,532 / 4,449 (57% have GrimAgeMort data)
-   - ~46% female, ~54% male
-
-4. **DNAm Array & Phenotypes**
-   - Illumina MethylationEPIC v1.0 (~850K sites)
-   - Includes 8 epigenetic clocks + immune cell proportions + biomarkers
-   - No CpG-level matrix in public-use file (restricted access)
-
-## References
-
-- Levine, M. E., et al. (2018). An epigenetic biomarker of aging for lifespan and healthspan. *Aging Cell*, 17(4), e12759.
-- Horvath, S., & Raj, K. (2018). DNA methylation-based biomarkers and the epigenetic clock theory of aging. *Trends in Genetics*, 34(11), 856–862.
-- NHANES Survey Methods and Analytic Guidelines: https://www.cdc.gov/nchs/nhanes/analyticguidelines.aspx
-- NCHS Data Linkage – Linked Mortality Files: https://www.cdc.gov/nchs/data-linkage/mortality-public.htm
-- CDC DNAm Epigenetic Biomarkers: https://wwwn.cdc.gov/nchs/nhanes/dnam/
+Code is MIT-licensed ([`LICENSE`](LICENSE)). The data is produced by the U.S.
+National Center for Health Statistics and is subject to NCHS terms of use;
+please credit NHANES and the NCHS Linked Mortality Files — see
+[`CITATION.md`](CITATION.md).
