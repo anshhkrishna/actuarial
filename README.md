@@ -35,3 +35,9 @@ python run_all.py        # or: make all
 ```
 
 writes `results/cindex_comparison.csv`, `results/ph_assumption_check.txt`, and figures.
+
+## license
+
+mit, and it covers the code only. the underlying nhanes data is produced by the u.s.
+national center for health statistics and is subject to nchs terms of use — see
+[`CITATION.md`](CITATION.md).
